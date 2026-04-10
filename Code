@@ -1,0 +1,372 @@
+Code:
+
+#downloads the PanTS github repository to /content/PanTS
+
+!git clone https://github.com/MrGiovanni/PanTS.git
+!cat /content/PanTS/download_PanTS_data.sh
+
+#downloads the meadata (labels)
+
+!wget -O /content/metadata.xlsx "https://huggingface.co/datasets/BodyMaps/PanTSMini/resolve/main/metadata.xlsx?download=true"
+
+#loads the excel labels into a df
+#counts the number of tumor and non-tumor patients in the dataset
+
+import pandas as pd
+
+df = pd.read_excel('/content/metadata.xlsx')
+print(df['tumor?'].value_counts())
+
+#saves the first 1,000 patient ids
+
+first_chunk = df[df['PanTS ID'] <= 'PanTS_00001000']
+print(first_chunk['tumor?'].value_counts())
+
+# Get all tumor cases from first chunk
+tumor_cases = first_chunk[first_chunk['tumor?'] == 1]['PanTS ID']
+
+# Randomly select 97 no tumor cases
+no_tumor_cases = first_chunk[first_chunk['tumor?'] == 0]['PanTS ID'].sample(n=97, random_state=42)
+
+print(f"Tumor cases: {len(tumor_cases)}")
+print(f"No tumor cases: {len(no_tumor_cases)}")
+print(f"\nFirst few tumor IDs: {tumor_cases.values[:3]}")
+print(f"First few no tumor IDs: {no_tumor_cases.values[:3]}")
+
+#downloads PanTSMini dataset into /content/PanTSMini_chunk1.tar.gz
+
+!wget --show-progress -O /content/PanTSMini_chunk1.tar.gz \
+"https://huggingface.co/datasets/BodyMaps/PanTSMini/resolve/main/PanTSMini_ImageTr_00000001_00001000.tar.gz?download=true"
+
+#extracts scans from /content/PanTSMini_chunk1.tar.gz into /content/PanTSMini_chunk1/
+
+import tarfile
+
+print("Extracting...")
+with tarfile.open('/content/PanTSMini_chunk1.tar.gz', 'r:gz') as tar:
+    tar.extractall('/content/PanTSMini_chunk1/')
+print("Done!")
+
+#prints the number of patient ids in dataset/first 10 patients ids/nii files
+
+import os
+
+base_dir = '/content/PanTSMini_chunk1'
+sub_ids = os.listdir(base_dir)
+
+print(len(sub_ids))
+print(sub_ids[:10])
+
+sub_dirs = os.path.join(base_dir, sub_ids[0])
+image_nii = os.listdir(sub_dirs)
+print(image_nii)
+
+#builds full paths for pateitns in dataset
+
+import nibabel as nib
+from skimage.transform import resize
+import matplotlib.pyplot as plt
+
+sub_dirs = []
+sub_ids = os.listdir(base_dir)
+
+for i in sub_ids:
+  sub_dirs.append(os.path.join(base_dir, i))
+print(sub_dirs)
+
+#stores nii files for each patient in dataset
+
+
+tumor_cases_img = []
+no_tumor_cases_img = []
+
+for id in tumor_cases:
+  sub_dirs = os.path.join(base_dir, id)
+  image_nii = os.listdir(sub_dirs)
+  nii_files = [f for f in image_nii if f.endswith('.nii') or f.endswith('.nii.gz')]
+  first_nii = nii_files[0]
+  img_path = os.path.join(sub_dirs, first_nii)
+  tumor_cases_img.append(img_path)
+
+
+for id in no_tumor_cases:
+  sub_dirs = os.path.join(base_dir, id)
+  image_nii = os.listdir(sub_dirs)
+  nii_files = [f for f in image_nii if f.endswith('.nii') or f.endswith('.nii.gz')]
+  first_nii = nii_files[0]
+  img_path = os.path.join(sub_dirs, first_nii)
+  no_tumor_cases_img.append(img_path)
+
+print(tumor_cases_img)
+print(no_tumor_cases_img)
+
+#prints sample data from random subject
+
+sample_path = tumor_cases_img[0]
+sample_img = nib.load(sample_path).get_fdata()
+
+
+print(f"Scan shape: {sample_img.shape}")
+print(f"Min intensity: {sample_img.min():.2f}")
+print(f"Max intensity: {sample_img.max():.2f}")
+
+#prints out middle scan of sample subject
+
+import matplotlib.pyplot as plt
+
+mid = sample_img.shape[2] // 2
+plt.imshow(sample_img[:, :, mid], cmap='gray')
+plt.title(f'Middle slice (slice {mid} of {sample_img.shape[2]})')
+plt.axis('off')
+plt.show()
+
+#prints out the size of a random subject
+
+import nibabel as nib
+
+test_path = tumor_cases_img[0]
+
+volume = nib.load(test_path)
+data = volume.get_fdata()
+
+print(data.shape)
+
+#collects the file paths for middle scans (T, T, T... NT, NT, NT...)
+#collects associated ground truth labels with same positioning
+#prints len of both lists
+
+mid_scans = []
+ground_truth = []
+
+for path in tumor_cases_img:
+  volume = nib.load(path)
+  mid = volume.shape[2] // 2
+  mid_slice = volume.dataobj[:, :, mid]
+  mid_scans.append(mid_slice)
+  ground_truth.append(1)
+
+for path in no_tumor_cases_img:
+  volume = nib.load(path)
+  mid = volume.shape[2] // 2
+  mid_slice = volume.dataobj[:, :, mid]
+  mid_scans.append(mid_slice)
+  ground_truth.append(0)
+
+print(len(mid_scans))
+print(len(ground_truth))
+
+#shows different sizes of mid scans for first 10 subjects
+
+for i, img in enumerate(mid_scans[:10]):
+    print(i, img.shape)
+
+#resizes and flattens all mid scans into X
+
+import cv2
+import numpy as np
+
+RESIZE = (128, 128)  # good balance for SVM
+
+X = []
+y = []
+
+# Tumor cases
+for img in mid_scans[:len(tumor_cases_img)]:
+    img_resized = cv2.resize(img, RESIZE)
+    X.append(img_resized.flatten())
+    y.append(1)
+
+# No tumor cases
+for img in mid_scans[len(tumor_cases_img):]:
+    img_resized = cv2.resize(img, RESIZE)
+    X.append(img_resized.flatten())
+    y.append(0)
+
+X = np.array(X)
+y = np.array(y)
+
+print(X.shape)
+print(y.shape)
+
+#normalizes all 16,384 pixel values in 1D array
+
+from sklearn.preprocessing import StandardScaler
+
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+#splits data 90% training and 10% testing
+
+from sklearn.model_selection import train_test_split
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X_scaled, y,
+    test_size=0.1,
+    random_state=42,
+    stratify=y
+)
+
+#creates SVM with certain parameters and trains on training set
+
+from sklearn.svm import SVC
+
+svm = SVC(kernel='rbf', C=10, gamma='scale')
+svm.fit(X_train, y_train)
+
+#runs trianed model on test dataset and reveals statistics
+
+from sklearn.metrics import accuracy_score, classification_report
+
+y_pred = svm.predict(X_test)
+
+print("Accuracy:", accuracy_score(y_test, y_pred))
+print(classification_report(y_test, y_pred))
+
+COMPARISON:
+
+#X_used = X_pca
+#shows all model statistics
+
+
+X_used = X_scaled
+from sklearn.model_selection import train_test_split
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X_used, y,
+    test_size=0.1,
+    random_state=42,
+    stratify=y
+)
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, classification_report
+svm = SVC(kernel='rbf', C=10, gamma='scale')
+svm.fit(X_train, y_train)
+svm_pred = svm.predict(X_test)
+
+
+knn = KNeighborsClassifier(n_neighbors=5)
+knn.fit(X_train, y_train)
+knn_pred = knn.predict(X_test)
+
+
+rf = RandomForestClassifier(n_estimators=200, random_state=42)
+rf.fit(X_train, y_train)
+rf_pred = rf.predict(X_test)
+print("=== SVM ===")
+print("Accuracy:", accuracy_score(y_test, svm_pred))
+print(classification_report(y_test, svm_pred))
+
+print("\n=== KNN ===")
+print("Accuracy:", accuracy_score(y_test, knn_pred))
+print(classification_report(y_test, knn_pred))
+
+print("\n=== Random Forest ===")
+print("Accuracy:", accuracy_score(y_test, rf_pred))
+print(classification_report(y_test, rf_pred))
+
+#shows all model statsistics from class structure
+
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.model_selection import GridSearchCV
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+from sklearn.svm import SVC
+from sklearn.naive_bayes import GaussianNB
+import numpy as np
+
+
+models = {
+    'DecisionTree': DecisionTreeClassifier(),
+    'LogisticRegression': LogisticRegression(),
+    'KNN': KNeighborsClassifier(),
+    'SVC': SVC(),
+    'NaiveBayes': GaussianNB()
+}
+
+params = {
+    'DecisionTree': {'max_depth': [None, 3, 5],
+                     'min_samples_split': [5, 10]},
+    'LogisticRegression':
+        {'C': [0.1, 1, 10], 'penalty': [None, 'l2']},
+    'KNN': {'n_neighbors': [3, 5, 7], 'weights': ['uniform', 'distance']},
+    'SVC': {'C': [0.1, 1, 10], 'kernel': ['poly', 'rbf']},
+    'NaiveBayes': {}
+}
+
+best_model = None
+best_param = None
+best_score = 0
+best_name = None
+
+for model in models:
+    grid_search = GridSearchCV(models[model], params[model], cv=3, scoring='accuracy')
+    grid_search.fit(X_train, y_train)
+
+    if grid_search.best_score_ > best_score:
+        best_score = grid_search.best_score_
+        best_param = grid_search.best_params_
+        best_model = grid_search.best_estimator_
+        best_name = model
+
+print('Best Model:', best_name)
+print('Best Parameters:', best_param)
+print('CV Accuracy:', best_score)
+
+
+#7.
+
+y_pred = best_model.predict(X_test)
+
+acc = accuracy_score(y_test, y_pred)
+prec = precision_score(y_test, y_pred, average='weighted')
+rec = recall_score(y_test, y_pred, average='weighted')
+
+print("TEST RESULTS -", best_name)
+print("Accuracy:", acc)
+print("Precision:", prec)
+print("Recall:", rec)
+
+#TESTS:
+
+results = {}
+
+for model_name in models:
+    grid_search = GridSearchCV(models[model_name], params[model_name], cv=3, scoring='accuracy')
+    grid_search.fit(X_train, y_train)
+
+    estimator = grid_search.best_estimator_
+    y_pred = estimator.predict(X_test)
+
+    results[model_name] = {
+        'best_params': grid_search.best_params_,
+        'cv_accuracy': grid_search.best_score_,
+        'test_accuracy': accuracy_score(y_test, y_pred),
+        'precision': precision_score(y_test, y_pred, average='weighted'),
+        'recall': recall_score(y_test, y_pred, average='weighted'),
+        'f1': f1_score(y_test, y_pred, average='weighted'),
+    }
+
+    if grid_search.best_score_ > best_score:
+        best_score = grid_search.best_score_
+        best_param = grid_search.best_params_
+        best_model = estimator
+        best_name = model_name
+
+# Print all results
+for name, r in results.items():
+    print(f"\n{'='*40}")
+    print(f"Model: {name}")
+    print(f"  Best Params:   {r['best_params']}")
+    print(f"  CV Accuracy:   {r['cv_accuracy']:.4f}")
+    print(f"  Test Accuracy: {r['test_accuracy']:.4f}")
+    print(f"  Precision:     {r['precision']:.4f}")
+    print(f"  Recall:        {r['recall']:.4f}")
+    print(f"  F1 Score:      {r['f1']:.4f}")
+
+print(f"\n{'='*40}")
+print(f"BEST OVERALL MODEL: {best_name}")
+print(f"  Params: {best_param}")
+print(f"  CV Accuracy: {best_score:.4f}")
