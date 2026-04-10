@@ -1,7 +1,7 @@
 # Team-19---Pancreatic-Tumor-Detection
 This is the required github repository for BME3053C final project
 
-Reasoning:
+Motivation:
 
 Pancreatic cancer is a very deadly disease that can go undetected for a significant amount of time before symptoms begin to affect the patient. Due to the position of the pancreas in the upper abdomen, it is difficult and often requires intrusive methods to receive a diagnosis from a medical professional. The use of an AI or computer vision model would be very impactful in the field of radiology due to the increased safety and rates of prevention that could save thousands of lives annually.
 
