@@ -22,7 +22,8 @@ Flattened each image into a 1d array of 16,384 individual values
  Trained and tested an SVM model (‘C’ = 10, ‘Kernel’, ‘rbf’)
 
  Results:
- Our trained SVM model reached 75% accuracy consistently across numerous trials
+ 
+Our trained SVM model reached 75% accuracy consistently across numerous trials
 We trained and tested other models for comparison such as Decision Tree, Logistic Regression, KNN, and Naive Bayes
 
 Decision Tree Test Accuracy (‘max depth’ = 5, ‘min samples split’ = 5): 75%
